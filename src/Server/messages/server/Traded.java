@@ -4,15 +4,13 @@ import java.util.List;
 
 import Game.Models.Tile;
 import Server.messages.Message;
+ 
+public class Traded  extends Message{
+    private static final long serialVersionUID = 109L;
 
-public class Traded extends Message{
-    private static final long serialVersionUID = 108L;
-    
-    public String name;
     public List<Tile> tiles;
 
-    public Traded(String name, List<Tile> tiles){
-        this.name = name;
+    public Traded(List<Tile> tiles) {
         this.tiles = tiles;
     }
 }

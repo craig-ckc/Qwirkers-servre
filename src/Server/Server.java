@@ -4,7 +4,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-import Game.Models.ServerGame;
+import Game.Models.Game;
 import Server.messages.server.StartGame;
 
 public class Server {
@@ -60,9 +60,10 @@ public class Server {
     
                 if (Games.games.get(session).size() > 4 || duration > 30) {
 
-                    ServerGame game = Games.games.get(session);
+                    Game game = Games.games.get(session);
+                    game.start();
 
-                    Games.send(session, new StartGame(game.players(), game.bagSize(), game.start()));
+                    Games.send(session, new StartGame(game.players(), game.currentPlayer(), game.bagCount()));
 
                     count++;
                     session = "game-" + count;

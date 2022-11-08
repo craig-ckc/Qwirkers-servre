@@ -1,34 +1,48 @@
 package Server;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
-import Game.Models.Player;
-import Game.Models.ServerGame;
+import Game.Models.Game;
+import Game.Models.Move;
+import Game.Models.Tile;
 import Server.messages.Message;
-import Server.messages.client.FinishPlay;
+import Server.messages.client.Clear;
+import Server.messages.client.Finish;
+import Server.messages.client.GetValidMoves;
 import Server.messages.client.Join;
-import Server.messages.client.PlayMove;
 import Server.messages.client.Leave;
+import Server.messages.client.Pass;
+import Server.messages.client.Play;
 import Server.messages.client.Trade;
+import Server.messages.client.Undo;
 import Server.messages.server.Confirmation;
-import Server.messages.server.FinishedPlay;
-import Server.messages.server.GameOver;
+import Server.messages.server.Finished;
+import Server.messages.server.InvalidMove;
 import Server.messages.server.Joined;
 import Server.messages.server.Left;
-import Server.messages.server.PlayedMove;
-import Server.messages.server.Traded;
+import Server.messages.server.Played;
+import Server.messages.server.Refill;
+import Server.messages.server.Undone;
+import Server.messages.server.Update;
+import Server.messages.server.ValidMoves;
 
 public class Games {
     private static final ReentrantLock lock = new ReentrantLock();
 
-    public static final Map<String, ServerGame> games = new HashMap<>();
+    public static final Map<String, Game> games = new HashMap<>();
+    public static final Map<String, Set<Client>> clients = new HashMap<>();
 
     public static void addGame(String gameSession) {
         lock.lock();
 
-        games.put(gameSession, new ServerGame());
+        games.put(gameSession, new Game());
+        clients.put(gameSession, new HashSet<>());
 
         lock.unlock();
     }
@@ -36,7 +50,7 @@ public class Games {
     public static void join(String session, Client client) {
         lock.lock();
 
-        games.get(session).addClient(client);
+        clients.get(session).add(client);
 
         client.send(new Confirmation(session));
 
@@ -44,28 +58,27 @@ public class Games {
     }
 
     public static void leave(Client client) {
-        ServerGame game = games.get(client.session);
-
-        boolean isCurrent = client == game.currentPlayer();
-
         lock.lock();
+        
+        Game game = games.get(client.session);
+        
+        clients.get(client.session).remove(client);
+        
+        for(Move move : game.removePlayer(client.player)){
+            send(client.session, new Undone(move.getPosition()));
+        }
 
-        if (isCurrent) game.nextPlayer();
+        client.session = "";
 
-        Player player = game.removeClient(client);
-        game.arrangePlayers();
+        send(client.session, new Left(client.player.name(), game.players(), game.currentPlayer(), game.bagCount()));
 
         lock.unlock();
-
-        send(client.session, new Left(player.getName(), game.players()));
-
-        send(client.session, new FinishedPlay(game.players(), game.bagSize(), game.player()));
     }
 
     public static void send(String session, Message message) {
         lock.lock();
 
-        games.get(session).clients().forEach(client -> {
+        clients.get(session).forEach(client -> {
             client.send(message);
         });
 
@@ -73,54 +86,92 @@ public class Games {
     }
 
     public static void onMessageReceived(Client client, Message message) {
+        Game game = games.get(client.session);
 
-        if (message instanceof Join) {
+        // Done
+        if (message instanceof Clear) {
+            List<Tile> refill = new ArrayList<>();
+
+            for(Move move : game.clear()){
+                refill.add(move.getTile());
+                send(client.session, new Undone(move.getPosition()));
+            }
+
+            client.send(new Refill(refill));
+        }
+
+        // Done
+        else if (message instanceof Finish) {
+            game.done();
+
+            send(client.session, new Finished(game.players(), game.currentPlayer(), game.bagCount()));
+        }
+
+        // Done
+        else if (message instanceof GetValidMoves) {
+            GetValidMoves msg = (GetValidMoves) message;
+
+            client.send(new ValidMoves(game.validMoves(msg.tile)));
+        }
+
+        // Done
+        else if (message instanceof Join) {
             Join msg = (Join) message;
 
-            lock.lock();
+            // attach player object to the client object
+            client.player = msg.player;
 
-            games.get(msg.session).registerPlayer(client, msg.player);
-            client.name = msg.player.getName();
+            // add player to the appropriate game instance
+            game.addPlayer(msg.player);
 
-            lock.unlock();
-
-            send(msg.session, new Joined(msg.player.getName(), games.get(msg.session).players()));
-
-            System.out.println(client.ClientID + " : " + client.name + " has joined game " + client.session);
+            // notify other clients of the same game that player has joined and updated player list
+            send(client.session, new Joined(msg.player.name(), game.players()));
         }
 
-        else if (message instanceof PlayMove) {
-            PlayMove msg = (PlayMove) message;
-
-            send(msg.session, new PlayedMove(msg.position, msg.tile));
+        // Done
+        else if (message instanceof Leave) {
+            leave(client);
         }
 
+        // Done
+        else if (message instanceof Pass) {
+            List<Tile> refill = new ArrayList<>();
+
+            for(Move move : game.clear()){
+                refill.add(move.getTile());
+                send(client.session, new Undone(move.getPosition()));
+            }
+
+            client.send(new Refill(refill));
+            
+            game.nextPlayer();
+
+            send(client.session, new Update(game.players(), game.currentPlayer(), game.bagCount()));
+        }
+
+        // Done
+        else if (message instanceof Play) {
+            Play msg = (Play) message;
+
+            if(game.play(msg.tile, msg.position)){
+                send(client.session, new Played(msg.position, msg.tile));
+            }else{
+                client.send(new InvalidMove(msg.tile));
+            }
+
+        }
+
+        // Done
         else if (message instanceof Trade) {
             Trade msg = (Trade) message;
 
-            send(msg.session, new Traded(client.name, msg.tiles));
+            client.send(new Trade(game.trade(msg.tiles)));
         }
 
-        else if (message instanceof FinishPlay) {
-            FinishPlay msg = (FinishPlay) message;
-
-            ServerGame game = games.get(msg.session);
-
-            if(game.done()){
-                send(msg.session, new GameOver(game.players()));
-                return;
-            }
-
-            send(msg.session, new FinishedPlay(game.players(), game.bagSize(), game.player()));
+        // Done
+        else if (message instanceof Undo) {
+            send(client.session, new Undone(game.undo().getPosition()));
         }
-
-        else if (message instanceof Leave) {
-            Leave msg = (Leave) message;
-
-            send(msg.session, new Left(msg.name, games.get(msg.session).players()));
-            System.out.println(client.ClientID + " : " + client.name + " has left game " + client.session);
-        }
-
+        
     }
-
 }

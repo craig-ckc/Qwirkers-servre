@@ -4,17 +4,17 @@ import java.util.List;
 
 import Game.Models.Player;
 import Server.messages.Message;
+ 
+public class StartGame  extends Message{
+    private static final long serialVersionUID = 108L;
 
-public class StartGame extends Message{
-    private static final long serialVersionUID = 106L;
-    
     public List<Player> players;
-    public Player activePlayer;
-    public String bagSize;
+    public Player player;
+    public int bag;
 
-    public StartGame(List<Player> players, Player activePlayer, String bagSize){
+    public StartGame(List<Player> players, Player player, int bag) {
         this.players = players;
-        this.activePlayer = activePlayer;
-        this.bagSize = bagSize;
+        this.player = player;
+        this.bag = bag;
     }
 }

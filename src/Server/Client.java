@@ -30,8 +30,8 @@ public class Client {
 
     // Details about the current connection's client.
     public int ClientID;
-    public String name = "";
     public String session = "";
+    public Player player;
 
     public int turn;
 
@@ -50,6 +50,14 @@ public class Client {
 
     public void setReceiver(Receiver receiver) {
         this.receiver = receiver;
+    }
+
+    public void setPlayer(Player player) {
+        this.player = player;
+    }
+
+    public Player player() {
+        return player;
     }
 
     public void send(Message message) {
